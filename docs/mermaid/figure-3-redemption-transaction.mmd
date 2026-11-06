@@ -1,0 +1,29 @@
+sequenceDiagram
+    participant C as Client
+    participant S as Service
+    participant DB as MongoDB
+
+    Note over S,DB: Transaction starts - snapshot, majority, 5 s deadline
+    S->>DB: insert redemption
+    alt duplicate key on key or active order
+        DB-->>S: E11000
+        S->>DB: abort
+        S->>DB: re-run R1 and R2 once
+        S-->>C: committed outcome or 503 RETRYABLE_ERROR
+    else inserted
+        S->>DB: coupon update if ACTIVE, in window, usedCount below totalLimit
+        alt no document matched
+            S->>DB: abort, then re-read coupon
+            S-->>C: 409 TOTAL_LIMIT_REACHED or 422 NOT_REDEEMABLE
+        else matched
+            S->>DB: customer usage upsert if usedCount below limit
+            alt E11000 on the upsert
+                S->>DB: abort
+                S-->>C: 409 CUSTOMER_LIMIT_REACHED
+            else ok
+                S->>DB: commit
+                S-->>C: 201 redemption
+            end
+        end
+    end
+    Note over S,DB: WriteConflict at any step - abort, wait 5 to 25 ms, rerun until the deadline, then 503

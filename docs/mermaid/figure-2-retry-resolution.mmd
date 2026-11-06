@@ -1,0 +1,24 @@
+sequenceDiagram
+    participant C as Client
+    participant S as Service
+    participant DB as MongoDB
+
+    C->>S: POST redemption with Idempotency-Key
+    S->>DB: R1 find by customer and key
+    alt key found
+        DB-->>S: record
+        S-->>C: replay 200, or 409 REVERSED, or 422 KEY_REUSED
+    else key not found
+        S->>DB: R2 find active by customer and order
+        alt active found
+            S-->>C: replay 200, or 409 ORDER_ALREADY_HAS_COUPON
+        else none active - R3
+            S->>DB: load coupon by code
+            S->>S: status, window and discount checks
+            alt a check fails
+                S-->>C: 404, 422 NOT_REDEEMABLE, or 422 DISCOUNT_EXCEEDS
+            else checks pass
+                Note over S: Continues in Figure 3, the transaction
+            end
+        end
+    end
